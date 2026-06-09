@@ -5,6 +5,7 @@ import { Header } from "./Header";
 import { Journey } from "./Journey";
 import { ExampleFetch } from "./services/components";
 import { Map } from './Map';
+import OSINTApp from './OSINTApp';
 
 /*create a special Geolocator class which has a method
   that returns a promise for obtaining the coordinates */
@@ -80,6 +81,7 @@ class App extends Component {
       alert(errorMessage);
       return (
         <div>
+        <OSINTApp />
         <Map />
         <Header />
         <Journey />
@@ -96,6 +98,7 @@ class App extends Component {
         passing in the coordinates obtained via getCurrentLocation.*/
       return (
         <div>
+        <OSINTApp />
         <Map
           defaultZoom={12}
           defaultCenter={center}
