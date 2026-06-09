@@ -270,11 +270,15 @@ const Dashboard = ({ results, investigationType, target, onBack }) => {
   );
 };
 
+const BACKEND_URL = process.env.REACT_APP_OSINT_API_URL || 'http://localhost:3001';
+
 const OSINTApp = () => {
   const [investigationType, setInvestigationType] = useState(null);
   const [target, setTarget] = useState('');
   const [hasStarted, setHasStarted] = useState(false);
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [results, setResults] = useState([]);
 
   const labelMap = {
     domain: "Website or domain",
@@ -312,173 +316,12 @@ const OSINTApp = () => {
     return '';
   };
 
-  const mockResults = {
-    domain: [
-      {
-        title: "Domain Ownership",
-        meaning: "Public WHOIS or registration data may reveal ownership or registrar details.",
-        risk: "Low",
-        source: "WHOIS / RDAP",
-        action: "Review privacy settings",
-        confidence: "Confirmed",
-        section: "important",
-        explanation: "This data shows who registered the domain and when. It can help identify the owner or administrator.",
-        whyItMatters: "Knowing the domain owner can help establish accountability or contact for further inquiries.",
-        doesNotProve: "This does not prove the domain is malicious or involved in illegal activity.",
-        nextStep: "Check if the registrant details are publicly visible or redacted.",
-      },
-      {
-        title: "Certificate History",
-        meaning: "This shows subdomains or past names connected to the domain.",
-        risk: "Medium",
-        source: "Certificate Transparency Logs",
-        action: "Check if any old subdomains still exist",
-        confidence: "Likely",
-        section: "possible",
-        explanation: "Certificate Transparency Logs record all SSL certificates issued for a domain, including subdomains.",
-        whyItMatters: "Subdomains can reveal additional services or historical usage of the domain.",
-        doesNotProve: "This does not prove the subdomains are still active or controlled by the same entity.",
-        nextStep: "Verify the existence of subdomains using DNS lookups.",
-      },
-      {
-        title: "DNS Configuration",
-        meaning: "Current DNS records for the domain.",
-        risk: "Low",
-        source: "DNS Lookup",
-        action: "Review for accuracy",
-        confidence: "Confirmed",
-        section: "general",
-        explanation: "DNS records direct traffic to your website and can impact security and performance.",
-        whyItMatters: "Accurate DNS configuration is important for reliability and security.",
-        doesNotProve: "This does not prove the DNS configuration is optimal or secure.",
-        nextStep: "Audit your DNS records for correctness and security.",
-      },
-    ],
-    ip: [
-      {
-        title: "Geolocation",
-        meaning: "The approximate physical location of the IP address.",
-        risk: "Low",
-        source: "IP Geolocation Database",
-        action: "Cross-reference with other data",
-        confidence: "Confirmed",
-        section: "important",
-        explanation: "Geolocation data provides the country, region, or city where the IP is registered.",
-        whyItMatters: "Location data can help identify the origin of traffic or services.",
-        doesNotProve: "This does not prove the exact physical location or the user's intent.",
-        nextStep: "Use this as a starting point for further investigation.",
-      },
-      {
-        title: "Hosting Provider",
-        meaning: "The company or service hosting this IP.",
-        risk: "Medium",
-        source: "RIPE / ARIN",
-        action: "Check for known malicious activity",
-        confidence: "Likely",
-        section: "possible",
-        explanation: "The hosting provider can indicate if the IP is part of a cloud service, VPN, or dedicated server.",
-        whyItMatters: "Hosting providers can be associated with specific reputations or known issues.",
-        doesNotProve: "This does not prove the hosting provider is aware of or involved in any malicious activity.",
-        nextStep: "Research the hosting provider's reputation.",
-      },
-    ],
-    email: [
-      {
-        title: "Breach Exposure",
-        meaning: "This email appears in a known data breach.",
-        risk: "High",
-        source: "Have I Been Pwned",
-        action: "Change passwords and enable 2FA",
-        confidence: "Possible",
-        section: "important",
-        explanation: "Data breaches expose email addresses and sometimes associated passwords.",
-        whyItMatters: "Breach exposure can lead to unauthorized access or identity theft.",
-        doesNotProve: "This does not prove the email is currently compromised or that the user is at fault.",
-        nextStep: "Secure the email account and monitor for suspicious activity.",
-      },
-    ],
-    company: [
-      {
-        title: "Business Registration",
-        meaning: "Public records of company registration and official filings.",
-        risk: "Low",
-        source: "Government Databases",
-        action: "Verify business details",
-        confidence: "Confirmed",
-        section: "important",
-        explanation: "Business registration data shows official company information and status.",
-        whyItMatters: "Official records help verify the legitimacy and status of a company.",
-        doesNotProve: "This does not prove the company is currently operational or trustworthy.",
-        nextStep: "Cross-reference with other official sources.",
-      },
-    ],
-    username: [
-      {
-        title: "Social Media Profiles",
-        meaning: "Public profiles associated with this username across platforms.",
-        risk: "Low",
-        source: "Social Media Search",
-        action: "Review profile information",
-        confidence: "Possible",
-        section: "possible",
-        explanation: "Social media profiles can reveal public information shared by the user.",
-        whyItMatters: "Profiles can provide context about the user's public activities and interests.",
-        doesNotProve: "This does not prove the identity or intentions of the user.",
-        nextStep: "Check for consistency across different platforms.",
-      },
-    ],
-    message: [
-      {
-        title: "Message Analysis",
-        meaning: "Analysis of message content for known patterns.",
-        risk: "Medium",
-        source: "Scam Database",
-        action: "Review for suspicious indicators",
-        confidence: "Likely",
-        section: "important",
-        explanation: "Message content is compared against known scam and phishing patterns.",
-        whyItMatters: "Identifying suspicious patterns can help prevent fraud or malicious activity.",
-        doesNotProve: "This does not prove the message is definitely malicious.",
-        nextStep: "Verify the sender and content independently.",
-      },
-    ],
-    url: [
-      {
-        title: "URL Analysis",
-        meaning: "Review of the URL structure and history.",
-        risk: "Low",
-        source: "URL Database",
-        action: "Check URL reputation",
-        confidence: "Confirmed",
-        section: "important",
-        explanation: "URL analysis can reveal historical usage and potential risks.",
-        whyItMatters: "Understanding URL history helps assess potential security concerns.",
-        doesNotProve: "This does not prove the URL is currently malicious.",
-        nextStep: "Use a URL scanner for additional verification.",
-      },
-    ],
-    default: [
-      {
-        title: "General Information",
-        meaning: "Basic details about the target.",
-        risk: "Low",
-        source: "Public Databases",
-        action: "Review for relevance",
-        confidence: "Unverified",
-        section: "general",
-        explanation: "General information provides context for further investigation.",
-        whyItMatters: "Context helps guide the direction of the investigation.",
-        doesNotProve: "This does not prove any specific claim about the target.",
-        nextStep: "Use this as a starting point for deeper analysis.",
-      },
-    ],
-  };
-
   const handleSelect = (type) => {
     setInvestigationType(type);
     setTarget('');
     setHasStarted(false);
     setError('');
+    setResults([]);
   };
 
   const handleBack = () => {
@@ -486,26 +329,43 @@ const OSINTApp = () => {
     setTarget('');
     setHasStarted(false);
     setError('');
+    setResults([]);
   };
 
-  const handleStartInvestigation = () => {
+  const handleStartInvestigation = async () => {
     const validationError = validateTarget(investigationType, target);
     if (validationError) {
       setError(validationError);
       return;
     }
-    setHasStarted(true);
+
+    setIsLoading(true);
     setError('');
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/investigate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: investigationType, target: target.trim() }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setResults(data.results);
+        setHasStarted(true);
+      } else {
+        setError(data.error || 'Investigation failed.');
+      }
+    } catch {
+      setError('Could not reach the backend server. Is it running on port 3001?');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleTargetChange = (e) => {
     setTarget(e.target.value);
     setError('');
   };
-
-  const results = investigationType
-    ? mockResults[investigationType] || mockResults.default
-    : [];
 
   const isValid = !validateTarget(investigationType, target);
 
@@ -545,14 +405,14 @@ const OSINTApp = () => {
           <button
             type="button"
             onClick={handleStartInvestigation}
-            disabled={!isValid}
+            disabled={!isValid || isLoading}
             className={`w-full p-3 rounded-lg transition-colors font-medium ${
-              isValid
+              isValid && !isLoading
                 ? 'bg-blue-600 text-white hover:bg-blue-700'
                 : 'bg-gray-300 text-gray-500 cursor-not-allowed'
             }`}
           >
-            Start Passive Check
+            {isLoading ? 'Running checks…' : 'Start Passive Check'}
           </button>
 
           <p className="text-xs text-gray-500 mt-4 text-center">
