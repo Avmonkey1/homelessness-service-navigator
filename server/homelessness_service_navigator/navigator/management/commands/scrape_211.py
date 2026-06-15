@@ -17,6 +17,12 @@ import requests
 from bs4 import BeautifulSoup
 from django.core.management.base import BaseCommand
 
+try:
+    import lxml  # noqa: F401
+    _BS4_PARSER = 'lxml'
+except ImportError:
+    _BS4_PARSER = 'html.parser'
+
 from navigator.models import OrganizationInfo
 
 logger = logging.getLogger(__name__)
@@ -270,7 +276,7 @@ class Command(BaseCommand):
             if html is None:
                 break
 
-            soup = BeautifulSoup(html, 'lxml')
+            soup = BeautifulSoup(html, _BS4_PARSER)
             page_results = self._parse_page(soup)
             if not page_results:
                 break
