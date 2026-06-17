@@ -3,35 +3,29 @@
  * Lead Scraper Configuration
  */
 
-define('SCRAPER_VERSION', '1.0.0');
-define('RESULTS_DIR', __DIR__ . '/results');
-define('LEADS_FILE', RESULTS_DIR . '/leads.json');
+$config = [
+    // Directory where results are stored (trailing slash required)
+    'results_dir' => __DIR__ . '/results/',
 
-// Scraper settings
-define('MAX_LEADS_PER_RUN', 100);
-define('REQUEST_DELAY_MS', 500);       // delay between requests in milliseconds
-define('REQUEST_TIMEOUT_SEC', 15);
+    // Predefined domains for bulk scraping (host names, no scheme)
+    'domains' => [
+        // 'example.com',
+        // 'another-site.org',
+    ],
 
-// Target sources (add URLs or search queries to scrape)
-$SCRAPER_SOURCES = [
-    // 'https://example.com/directory',
-];
+    // Maximum pages to crawl per domain
+    'max_pages' => 10,
 
-// Fields to extract per lead
-$LEAD_FIELDS = [
-    'name',
-    'email',
-    'phone',
-    'website',
-    'address',
-    'category',
-    'source_url',
-    'scraped_at',
-];
+    // Milliseconds to wait between requests
+    'request_delay_ms' => 500,
 
-// HTTP headers for requests
-$REQUEST_HEADERS = [
-    'User-Agent: Mozilla/5.0 (compatible; LeadScraper/' . SCRAPER_VERSION . ')',
-    'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    'Accept-Language: en-US,en;q=0.5',
+    // cURL timeout in seconds
+    'request_timeout' => 15,
+
+    // HTTP headers sent with every request
+    'request_headers' => [
+        'User-Agent: Mozilla/5.0 (compatible; LeadScraper/1.0)',
+        'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language: en-US,en;q=0.5',
+    ],
 ];

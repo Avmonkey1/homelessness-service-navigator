@@ -1,120 +1,162 @@
 <?php
 /**
- * Core scraping logic
+ * Core scraping logic.
+ *
+ * Public API: scrape_domain(string $domain, array $config): array
+ * Returns: ['emails' => [], 'phones' => [], 'contact_forms' => [], 'urls_scraped' => []]
  */
 
-require_once __DIR__ . '/config.php';
+function scrape_domain(string $domain, array $config): array {
+    $results = [
+        'emails'        => [],
+        'phones'        => [],
+        'contact_forms' => [],
+        'urls_scraped'  => [],
+    ];
 
-class LeadScraper {
+    $baseUrl   = 'https://' . $domain;
+    $visited   = [];
+    $queue     = [$baseUrl];
+    $maxPages  = $config['max_pages'] ?? 10;
 
-    private array $leads = [];
-    private array $errors = [];
+    while (!empty($queue) && count($visited) < $maxPages) {
+        $url = array_shift($queue);
 
-    public function run(array $sources): array {
-        foreach ($sources as $url) {
-            $this->scrapeSource($url);
-            usleep(REQUEST_DELAY_MS * 1000);
+        if (isset($visited[$url])) {
+            continue;
         }
-        return $this->leads;
+        $visited[$url] = true;
+
+        $html = _fetch_url($url, $config);
+        if ($html === false) {
+            continue;
+        }
+
+        $results['urls_scraped'][] = $url;
+
+        // Extract contacts from this page
+        _extract_emails($html, $results['emails']);
+        _extract_phones($html, $results['phones']);
+        _extract_contact_forms($html, $url, $domain, $results['contact_forms']);
+
+        // Discover internal links to crawl next
+        $links = _extract_internal_links($html, $url, $domain);
+        foreach ($links as $link) {
+            if (!isset($visited[$link]) && !in_array($link, $queue, true)) {
+                $queue[] = $link;
+            }
+        }
+
+        if ($config['request_delay_ms'] > 0) {
+            usleep($config['request_delay_ms'] * 1000);
+        }
     }
 
-    private function scrapeSource(string $url): void {
-        $html = $this->fetch($url);
-        if ($html === false) {
-            $this->errors[] = "Failed to fetch: $url";
+    // Deduplicate
+    $results['emails']        = array_values(array_unique($results['emails']));
+    $results['phones']        = array_values(array_unique($results['phones']));
+    $results['contact_forms'] = array_values(array_unique($results['contact_forms']));
+
+    return $results;
+}
+
+// ---------------------------------------------------------------------------
+// Private helpers
+// ---------------------------------------------------------------------------
+
+function _fetch_url(string $url, array $config): string|false {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_TIMEOUT        => $config['request_timeout'] ?? 15,
+        CURLOPT_HTTPHEADER     => $config['request_headers'] ?? [],
+        CURLOPT_SSL_VERIFYPEER => true,
+    ]);
+
+    $html     = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    return ($html !== false && $httpCode === 200) ? $html : false;
+}
+
+function _extract_emails(string $html, array &$emails): void {
+    preg_match_all(
+        '/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/',
+        $html,
+        $matches
+    );
+    foreach ($matches[0] as $email) {
+        $emails[] = strtolower($email);
+    }
+}
+
+function _extract_phones(string $html, array &$phones): void {
+    // North American + international formats
+    preg_match_all(
+        '/(\+?1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}/',
+        $html,
+        $matches
+    );
+    foreach ($matches[0] as $phone) {
+        $phones[] = trim($phone);
+    }
+}
+
+function _extract_contact_forms(string $html, string $pageUrl, string $domain, array &$forms): void {
+    $dom = new DOMDocument();
+    libxml_use_internal_errors(true);
+    $dom->loadHTML($html);
+    libxml_clear_errors();
+
+    $xpath = new DOMXPath($dom);
+
+    // Pages whose URL or title suggests a contact form
+    $contactPatterns = ['contact', 'get-in-touch', 'reach-us', 'enquiry', 'inquiry'];
+    foreach ($contactPatterns as $pattern) {
+        if (stripos($pageUrl, $pattern) !== false) {
+            $forms[] = $pageUrl;
             return;
         }
+    }
 
-        $extracted = $this->extractLeads($html, $url);
-        foreach ($extracted as $lead) {
-            $this->leads[] = $lead;
-            if (count($this->leads) >= MAX_LEADS_PER_RUN) {
-                break 2;
+    // Pages that contain a <form> with action or method
+    $formNodes = $xpath->query('//form[@action or @method]');
+    if ($formNodes->length > 0) {
+        $forms[] = $pageUrl;
+    }
+}
+
+function _extract_internal_links(string $html, string $currentUrl, string $domain): array {
+    $dom = new DOMDocument();
+    libxml_use_internal_errors(true);
+    $dom->loadHTML($html);
+    libxml_clear_errors();
+
+    $xpath = new DOMXPath($dom);
+    $links = [];
+
+    foreach ($xpath->query('//a[@href]') as $node) {
+        $href = $node->getAttribute('href');
+
+        // Resolve relative URLs
+        if (str_starts_with($href, '/')) {
+            $href = 'https://' . $domain . $href;
+        } elseif (!str_starts_with($href, 'http')) {
+            continue; // skip mailto:, javascript:, anchors, etc.
+        }
+
+        // Keep only same-domain links
+        $parsed = parse_url($href);
+        if (($parsed['host'] ?? '') === $domain) {
+            // Strip fragment
+            $href = strtok($href, '#');
+            if ($href) {
+                $links[] = $href;
             }
         }
     }
 
-    private function fetch(string $url): string|false {
-        global $REQUEST_HEADERS;
-
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_TIMEOUT        => REQUEST_TIMEOUT_SEC,
-            CURLOPT_HTTPHEADER     => $REQUEST_HEADERS,
-            CURLOPT_SSL_VERIFYPEER => true,
-        ]);
-
-        $html = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        return ($html !== false && $httpCode === 200) ? $html : false;
-    }
-
-    private function extractLeads(string $html, string $sourceUrl): array {
-        $leads = [];
-        $dom = new DOMDocument();
-        libxml_use_internal_errors(true);
-        $dom->loadHTML($html);
-        libxml_clear_errors();
-
-        $xpath = new DOMXPath($dom);
-
-        // Extract email addresses via regex on raw HTML
-        preg_match_all(
-            '/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/',
-            $html,
-            $emailMatches
-        );
-
-        // Extract phone numbers (basic North American pattern)
-        preg_match_all(
-            '/(\+?1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}/',
-            $html,
-            $phoneMatches
-        );
-
-        // Extract page title as a fallback name
-        $titleNodes = $xpath->query('//title');
-        $pageName = $titleNodes->length ? trim($titleNodes->item(0)->textContent) : '';
-
-        $emails  = array_unique($emailMatches[0]);
-        $phones  = array_unique($phoneMatches[0]);
-
-        // Build one lead per unique email found
-        foreach ($emails as $i => $email) {
-            $leads[] = [
-                'name'       => $pageName,
-                'email'      => $email,
-                'phone'      => $phones[$i] ?? '',
-                'website'    => $sourceUrl,
-                'address'    => '',
-                'category'   => '',
-                'source_url' => $sourceUrl,
-                'scraped_at' => date('c'),
-            ];
-        }
-
-        return $leads;
-    }
-
-    public function getErrors(): array {
-        return $this->errors;
-    }
-
-    public function saveLeads(): bool {
-        $existing = [];
-        if (file_exists(LEADS_FILE)) {
-            $content  = file_get_contents(LEADS_FILE);
-            $existing = json_decode($content, true) ?? [];
-        }
-
-        $merged = array_merge($existing, $this->leads);
-        return file_put_contents(
-            LEADS_FILE,
-            json_encode($merged, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)
-        ) !== false;
-    }
+    return $links;
 }

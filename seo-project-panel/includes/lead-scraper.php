@@ -1,70 +1,80 @@
 <?php
 /**
  * Lead Scraper helper functions — integrates with the broader SEO project panel.
+ *
+ * Data format on disk: { "domain.com": { emails: [], phones: [], contact_forms: [], urls_scraped: [] }, ... }
  */
 
-/**
- * Return all stored leads, optionally filtered by category or keyword.
- */
-function get_leads(string $category = '', string $keyword = ''): array {
-    $file = __DIR__ . '/../lead-scraper/results/leads.json';
-    if (!file_exists($file)) {
-        return [];
-    }
-
-    $leads = json_decode(file_get_contents($file), true) ?? [];
-
-    if ($category !== '') {
-        $leads = array_filter($leads, fn($l) => ($l['category'] ?? '') === $category);
-    }
-
-    if ($keyword !== '') {
-        $kw    = strtolower($keyword);
-        $leads = array_filter($leads, function ($l) use ($kw) {
-            return str_contains(strtolower($l['name']    ?? ''), $kw)
-                || str_contains(strtolower($l['email']   ?? ''), $kw)
-                || str_contains(strtolower($l['website'] ?? ''), $kw);
-        });
-    }
-
-    return array_values($leads);
+function _leads_file(): string {
+    return __DIR__ . '/../lead-scraper/results/leads.json';
 }
 
-/**
- * Return the total count of stored leads.
- */
-function count_leads(): int {
-    return count(get_leads());
+function _load_all_leads(): array {
+    $file = _leads_file();
+    return file_exists($file) ? (json_decode(file_get_contents($file), true) ?? []) : [];
 }
 
-/**
- * Append a single lead array to the persistent store.
- * Returns true on success.
- */
-function save_lead(array $lead): bool {
-    $file    = __DIR__ . '/../lead-scraper/results/leads.json';
-    $existing = file_exists($file) ? (json_decode(file_get_contents($file), true) ?? []) : [];
-
-    $lead['scraped_at'] = $lead['scraped_at'] ?? date('c');
-    $existing[]         = $lead;
-
+function _save_all_leads(array $data): bool {
     return file_put_contents(
-        $file,
-        json_encode($existing, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)
+        _leads_file(),
+        json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
     ) !== false;
 }
 
 /**
- * Delete leads that match a given email address.
- * Returns the number of leads removed.
+ * Return scraped data for a single domain, or null if not yet scraped.
  */
-function delete_lead_by_email(string $email): int {
-    $file   = __DIR__ . '/../lead-scraper/results/leads.json';
-    $leads  = file_exists($file) ? (json_decode(file_get_contents($file), true) ?? []) : [];
-    $before = count($leads);
+function get_leads_for_domain(string $domain): ?array {
+    $all = _load_all_leads();
+    return $all[$domain] ?? null;
+}
 
-    $leads  = array_values(array_filter($leads, fn($l) => ($l['email'] ?? '') !== $email));
-    file_put_contents($file, json_encode($leads, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+/**
+ * Return all scraped domains and their data.
+ */
+function get_all_leads(): array {
+    return _load_all_leads();
+}
 
-    return $before - count($leads);
+/**
+ * Count total unique emails across all scraped domains.
+ */
+function count_total_emails(): int {
+    $total = 0;
+    foreach (_load_all_leads() as $data) {
+        $total += count($data['emails'] ?? []);
+    }
+    return $total;
+}
+
+/**
+ * Count total unique phone numbers across all scraped domains.
+ */
+function count_total_phones(): int {
+    $total = 0;
+    foreach (_load_all_leads() as $data) {
+        $total += count($data['phones'] ?? []);
+    }
+    return $total;
+}
+
+/**
+ * Persist scrape results for a domain (overwrites existing entry).
+ */
+function save_domain_leads(string $domain, array $leads): bool {
+    $all          = _load_all_leads();
+    $all[$domain] = $leads;
+    return _save_all_leads($all);
+}
+
+/**
+ * Remove a domain's data from the store. Returns true if the domain existed.
+ */
+function delete_domain_leads(string $domain): bool {
+    $all = _load_all_leads();
+    if (!isset($all[$domain])) {
+        return false;
+    }
+    unset($all[$domain]);
+    return _save_all_leads($all);
 }
