@@ -131,18 +131,23 @@ CATEGORY_MAP = {
 }
 
 # DC zip codes covering all 8 wards.
-DC_ZIP_CODES = [
-    '20001', '20002', '20003', '20005', '20007',
-    '20009', '20010', '20011', '20019', '20020',
-    '20024', '20032',
+CO_LOCATIONS = [
+    'Denver, CO',
+    'Colorado Springs, CO',
+    'Aurora, CO',
+    'Boulder, CO',
+    'Fort Collins, CO',
+    'Pueblo, CO',
+    'Lakewood, CO',
+    'Thornton, CO',
 ]
 
 # Search terms targeting homeless-relevant services.
 SEARCH_TERMS = [
-    'homeless services',
+    'homeless shelter',
     'emergency shelter',
     'transitional housing',
-    'food assistance',
+    'food bank',
     'mental health',
     'substance abuse treatment',
     'employment services',
@@ -156,14 +161,14 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             '--base-url',
-            default='https://dc.211.org',
-            help='Base URL of the 211 site (default: https://dc.211.org)',
+            default='https://search.211colorado.org',
+            help='Base URL of the 211 site (default: https://search.211colorado.org)',
         )
         parser.add_argument(
-            '--zip-codes',
+            '--locations',
             nargs='+',
-            default=DC_ZIP_CODES,
-            help='ZIP codes to search (default: all DC zip codes)',
+            default=CO_LOCATIONS,
+            help='City/location strings to search (default: major Colorado cities)',
         )
         parser.add_argument(
             '--search-terms',
@@ -190,13 +195,13 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             '--state',
-            default='DC',
-            help='Default state for parsed organizations (default: DC)',
+            default='CO',
+            help='Default state for parsed organizations (default: CO)',
         )
         parser.add_argument(
             '--city',
-            default='WASHINGTON',
-            help='Default city for parsed organizations (default: WASHINGTON)',
+            default='DENVER',
+            help='Default city for parsed organizations (default: DENVER)',
         )
 
     def handle(self, *args, **options):
@@ -224,15 +229,15 @@ class Command(BaseCommand):
         updated = 0
         skipped = 0
 
-        zip_codes = options['zip_codes']
+        locations = options['locations']
         search_terms = options['search_terms']
 
         self.stdout.write(
             f'Scraping {self.base_url} | '
-            f'{len(zip_codes)} zip code(s) × {len(search_terms)} search term(s)'
+            f'{len(locations)} location(s) × {len(search_terms)} search term(s)'
         )
 
-        for zip_code in zip_codes:
+        for zip_code in locations:
             for term in search_terms:
                 orgs = self._scrape_search(term, zip_code)
                 for org in orgs:
@@ -301,9 +306,15 @@ class Command(BaseCommand):
             self.stderr.write(f'  [skip] {url} — {exc}')
             return None
 
-    def _search_url(self, term, zip_code, page=1):
-        params = {'q': term, 'location': zip_code, 'page': page}
-        return f'{self.base_url}/search/?{urlencode(params)}'
+    def _search_url(self, term, location, page=1):
+        # search.211colorado.org uses: terms=, location=, service_area=, page=
+        params = {
+            'terms': term,
+            'location': location,
+            'service_area': 'colorado',
+            'page': page,
+        }
+        return f'{self.base_url}/search?{urlencode(params)}'
 
     # ------------------------------------------------------------------
     # HTML parsing  (multi-selector strategy for iCarol / generic 211 sites)
